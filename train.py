@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import DataLoader
-
+import matplotlib.pyplot as plt
 from data import Stenosis_Dataset
 from UNet import UNet
 
@@ -10,24 +10,43 @@ optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor([1.0, 10.0], device=device))
 lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
 
-train_set = Stenosis_Dataset(mode="train")
-train_loader = DataLoader(train_set, batch_size=4, shuffle=True, num_workers=4, drop_last=True)
+train_set_1 = Stenosis_Dataset(mode="train_1")
+train_loader_1 = DataLoader(train_set_1, batch_size=4, shuffle=True, num_workers=4, drop_last=True)
+train_set_2 = Stenosis_Dataset(mode="train_2")
+train_loader_2 = DataLoader(train_set_2, batch_size=4, shuffle=True, num_workers=4, drop_last=True)
 val_set = Stenosis_Dataset(mode="val")
 val_loader = DataLoader(val_set, batch_size=4, shuffle=False, num_workers=4, drop_last=False)
 
-for epoch in range(10):
-    print(f"EPOCH: {epoch}/10")
+train_log = []
+f1_score_log = []
+
+for epoch in range(50):
+    print(f"EPOCH: {epoch}/50")
     model.train()
-    for batch_idx, (inputs, masks) in enumerate(train_loader):
-        inputs, masks = inputs.to(device), masks.to(device)
-        optimizer.zero_grad()
-        pred_masks = model(inputs)
-        loss = criterion(pred_masks, masks)
-        loss.backward()
-        optimizer.step()
-        if batch_idx % 10 == 0:
-            print(f"batch_idx: {batch_idx}, train_loss: {loss.item()}")
-    lr_scheduler.step()
+    if epoch < 25:
+        for batch_idx, (inputs, masks) in enumerate(train_loader_1):
+            inputs, masks = inputs.to(device), masks.to(device)
+            optimizer.zero_grad()
+            pred_masks = model(inputs)
+            loss = criterion(pred_masks, masks)
+            loss.backward()
+            optimizer.step()
+            if batch_idx % 10 == 0:
+                print(f"batch_idx: {batch_idx}, train_loss: {loss.item()}")
+        lr_scheduler.step()
+        train_log.append(loss.item())
+    else:
+        for batch_idx, (inputs, masks) in enumerate(train_loader_2):
+            inputs, masks = inputs.to(device), masks.to(device)
+            optimizer.zero_grad()
+            pred_masks = model(inputs)
+            loss = criterion(pred_masks, masks)
+            loss.backward()
+            optimizer.step()
+            if batch_idx % 10 == 0:
+                print(f"batch_idx: {batch_idx}, train_loss: {loss.item()}")
+        lr_scheduler.step()
+        train_log.append(loss.item())
     
     model.eval()
     with torch.no_grad():
@@ -43,3 +62,15 @@ for epoch in range(10):
             total_samples += inputs.size(0)
             total_f1_score += f1 * inputs.size(0)
         print(f"val_f1_score: {total_f1_score / total_samples}")
+    f1_score_log.append(total_f1_score / total_samples)
+
+# 以epoch序号为x轴，train_log为y轴，绘制折线图
+# 以epoch序号为x轴，f1_score_log为y轴，绘制折线图
+plt.plot(range(train_log), train_log)
+plt.xlabel("epoch")
+plt.ylabel("train_loss")
+plt.savefig("train_loss.png")
+plt.plot(range(f1_score_log), f1_score_log)
+plt.xlabel("epoch")
+plt.ylabel("f1_score")
+plt.savefig("f1_score.png")
