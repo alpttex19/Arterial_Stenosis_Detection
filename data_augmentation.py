@@ -25,12 +25,6 @@ class Compose(object):
         return img, mask
 
 
-class ConvertFromInts(object):
-    def __call__(self, image, mask = None):
-        # TODO: 暂且不知道这里对不对
-        return image.astype(np.float32), mask
-
-
 class ConvertColor(object):
     def __init__(self, current='BGR', transform='HSV'):
         self.transform = transform
@@ -118,69 +112,37 @@ class RandomSampleCrop(object):
     """Crop
     Arguments:
         img (Image): the image being input during training
-        boxes (Tensor): the original bounding boxes in pt form
-        labels (Tensor): the class labels for each bbox
         mode (float tuple): the min and max jaccard overlaps
     Return:
         (img, boxes, classes)
             img (Image): the cropped image
-            boxes (Tensor): the adjusted bounding boxes in pt form
-            labels (Tensor): the class labels for each bbox
     """
-    def __init__(self):
-        self.sample_options = (
-            # using entire original input image
-            None,
-            # sample a patch s.t. MIN jaccard w/ obj in .1,.3,.4,.7,.9
-            (0.1, None),
-            (0.3, None),
-            (0.7, None),
-            (0.9, None),
-            # randomly sample a patch
-            (None, None),
-        )
-
     def __call__(self, image, mask=None):
         height, width, _ = image.shape
-        # check
+        # max trails (50)
+        for _ in range(5):
+            current_image = image
+            current_mask = mask
 
-        while True:
-            # randomly choose a mode
-            sample_id = np.random.randint(len(self.sample_options))
-            mode = self.sample_options[sample_id]
-            if mode is None:
-                return image, mask
+            w = random.uniform(0.3 * width, width)
+            h = random.uniform(0.3 * height, height)
 
-            min_iou, max_iou = mode
-            if min_iou is None:
-                min_iou = float('-inf')
-            if max_iou is None:
-                max_iou = float('inf')
+            # aspect ratio constraint b/t .5 & 2
+            if h / w < 0.5 or h / w > 2:
+                continue
 
-            # max trails (50)
-            for _ in range(50):
-                current_image = image
-                current_mask = mask
+            left = random.uniform(width - w)
+            top = random.uniform(height - h)
 
-                w = random.uniform(0.3 * width, width)
-                h = random.uniform(0.3 * height, height)
+            # convert to integer rect x1,y1,x2,y2
+            rect = np.array([int(left), int(top), int(left+w), int(top+h)])
 
-                # aspect ratio constraint b/t .5 & 2
-                if h / w < 0.5 or h / w > 2:
-                    continue
+            # cut the crop from the image
+            current_image = current_image[rect[1]:rect[3], rect[0]:rect[2],:]
+            current_mask = current_mask[rect[1]:rect[3], rect[0]:rect[2]]
 
-                left = random.uniform(width - w)
-                top = random.uniform(height - h)
-
-                # convert to integer rect x1,y1,x2,y2
-                rect = np.array([int(left), int(top), int(left+w), int(top+h)])
-
-                # cut the crop from the image
-                current_image = current_image[rect[1]:rect[3], rect[0]:rect[2],
-                                              :]
-                current_mask = current_mask[rect[1]:rect[3], rect[0]:rect[2]]
-
-                return current_image, current_mask
+            return current_image, current_mask
+        return image, mask
 
 
 class Expand(object):
@@ -189,7 +151,7 @@ class Expand(object):
             return image, mask
 
         height, width, depth = image.shape
-        ratio = random.uniform(1, 4)
+        ratio = random.uniform(1, 2)
         left = random.uniform(0, width*ratio - width)
         top = random.uniform(0, height*ratio - height)
 
@@ -212,7 +174,6 @@ class Expand(object):
 
 class RandomHorizontalFlip(object):
     def __call__(self, image, mask):
-        _, width, _ = image.shape
         if random.randint(2):
             image = image[:, ::-1]
             mask = mask[:, ::-1]
@@ -222,7 +183,6 @@ class RandomHorizontalFlip(object):
 
 class RandomVerticalFlip(object):
     def __call__(self, image, mask):
-        height, _, _ = image.shape
         if random.randint(2):
             image = image[::-1, :]
             mask = mask[::-1, :]
@@ -230,7 +190,7 @@ class RandomVerticalFlip(object):
         return image, mask
     
 class RandomRotate(object):
-    def __init__(self, angle=180):
+    def __init__(self, angle=90):
         self.angle = random.uniform(-angle, angle)
 
     def __call__(self, image, mask):
@@ -273,9 +233,7 @@ class SSDAugmentation(object):
     def __init__(self, img_size=512):
         self.img_size = img_size
         self.augment = Compose([
-            ConvertFromInts(),                         # 将int类型转换为float32类型
-            # PhotometricDistort(),                      # 图像颜色增强
-            Expand(),                                  # 扩充增强
+            # Expand(),                                  # 扩充增强
             RandomSampleCrop(),                        # 随机剪裁
             RandomHorizontalFlip(),                    # 随机水平翻转
             RandomVerticalFlip(),                      # 随机垂直翻转

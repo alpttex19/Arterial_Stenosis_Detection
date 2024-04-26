@@ -30,9 +30,5 @@ class Stenosis_Dataset(Dataset):
     def __getitem__(self, idx):
         image = cv2.imread(f"{self.data_root}/images/{self.file_names[idx]}")
         mask = cv2.imread(f"{self.data_root}/masks/{self.file_names[idx]}", cv2.COLOR_BGR2GRAY)
-        if self.mode == "train_1" :
-            image, mask = self.transform(image, mask)
-            return image.float(), mask.long()
-        else :
-            image, mask = self.transform(image, mask)
-            return image.float(), mask.long()
+        image, mask = self.transform(image, mask)
+        return image.float(), mask.long()

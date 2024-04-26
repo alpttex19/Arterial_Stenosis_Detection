@@ -1,3 +1,10 @@
 *.pdf
 *.zip
+*.txt
+*.pth
+*.png
+test_results
+train_log
+intermediate_results
+resources
 stenosis_data
