@@ -11,7 +11,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = UNet().to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor([1.0, 10.0], device=device))
-combined_loss_fn = CombinedLoss(ce_weight=torch.tensor([1.0, 10.0], device=device), dice_weight=1.0, iou_weight=1.0)
+combined_loss_fn = CombinedLoss(ce_weight=torch.tensor([1.0, 10.0], device=device), dice_weight=2.0, iou_weight=2.0)
 lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
 
 
@@ -23,55 +23,59 @@ def train(epoch_num, output_path, train_loader_1, train_loader_2, val_loader):
         print(f"EPOCH: {epoch}/{epoch_num}")
         model.train()
         if epoch < 0: #epoch_num // 2:
-            for batch_idx, (inputs, masks) in enumerate(train_loader_1):
+            for batch_idx, (inputs, masks, image_names) in enumerate(train_loader_1):
                 inputs, masks = inputs.to(device), masks.to(device)
                 optimizer.zero_grad()
                 pred_masks = model(inputs)
                 # loss = criterion(pred_masks, masks)
-                loss = combined_loss_fn(pred_masks, masks)
-                loss.backward()
+                combined_loss, ce_loss, dice_loss, iou_loss = combined_loss_fn(pred_masks, masks)
+                combined_loss.backward()
                 optimizer.step()
                 if batch_idx % 10 == 0:
-                    print(f"batch_idx: {batch_idx}, train_loss: {loss.item()}")
-                    loss_epoch_log.append(loss.item())
-                    # 假设 inputs 和 pred_masks 是形状为 [batch_size, channels, height, width] 的张量
-                    inputs_images = inputs.detach().cpu()
-                    pred_masks_images = pred_masks.detach().cpu()
-                    masks_images = masks.detach().cpu()
-                    for i, img in enumerate(masks_images):
-                        img = img.float()
-                        torchvision.utils.save_image(img, f'{output_path}/{epoch}_masks_{i}.png')
-                    # 保存 inputs
-                    for i, img in enumerate(inputs_images):
-                        torchvision.utils.save_image(img, f'{output_path}/{epoch}_inputs_{i}.png')
-                    # 保存 pred_masks
-                    for i, img in enumerate(pred_masks_images):
-                        img = img.float()
-                        torchvision.utils.save_image(img, f'{output_path}/{epoch}_pred_masks_{i}.png')
-                    # 保存 masks
-                
+                    print(f"batch_idx: {batch_idx}, train_loss: {combined_loss.item()}")
+                    print(f"联合损失：{combined_loss.item()}, 交叉熵损失：{ce_loss.item()}, dice损失：{dice_loss.item()}, iou损失：{iou_loss.item()}")
+                    loss_epoch_log.append(combined_loss.item())
+
             lr_scheduler.step()
 
         else:
-            for batch_idx, (inputs, masks) in enumerate(train_loader_2):
+            for batch_idx, (inputs, masks, image_names) in enumerate(train_loader_2):
                 inputs, masks = inputs.to(device), masks.to(device)
                 optimizer.zero_grad()
                 pred_masks = model(inputs)
                 # loss = criterion(pred_masks, masks)
-                loss = combined_loss_fn(pred_masks, masks)
-                loss.backward()
+                combined_loss, ce_loss, dice_loss, iou_loss = combined_loss_fn(pred_masks, masks)
+                combined_loss.backward()
                 optimizer.step()
                 if batch_idx % 10 == 0:
-                    print(f"batch_idx: {batch_idx}, train_loss: {loss.item()}")
-                    loss_epoch_log.append(loss.item())
+                    print(f"batch_idx: {batch_idx}, train_loss: {combined_loss.item()}")
+                    print(f"联合损失：{combined_loss.item()}, 交叉熵损失：{ce_loss.item()}, dice损失：{dice_loss.item()}, iou损失：{iou_loss.item()}")
+                    loss_epoch_log.append(combined_loss.item())
+                    
+                # 假设 inputs 和 pred_masks 是形状为 [batch_size, channels, height, width] 的张量
+                inputs_images = inputs.detach().cpu()
+                pred_masks_images = pred_masks.detach().cpu()
+                masks_images = masks.detach().cpu()
+                for i, img in enumerate(masks_images):
+                    img = img.float()
+                    torchvision.utils.save_image(img, f'{output_path}/{image_names[i]}_masks.png')
+                # 保存 inputs
+                for i, img in enumerate(inputs_images):
+                    torchvision.utils.save_image(img, f'{output_path}/{image_names[i]}_inputs.png')
+                # 保存 pred_masks
+                for i, img in enumerate(pred_masks_images):
+                    img = img.float()
+                    torchvision.utils.save_image(img, f'{output_path}/{image_names[i]}_pred.png')
+                # 保存 masks
             lr_scheduler.step()
+        
         average_loss = sum(loss_epoch_log) / len(loss_epoch_log)
         train_log.append(average_loss)
         
         model.eval()
         with torch.no_grad():
             total_samples, total_f1_score = 0, 0
-            for batch_idx, (inputs, masks) in enumerate(val_loader):
+            for batch_idx, (inputs, masks, _) in enumerate(val_loader):
                 inputs, masks = inputs.to(device), masks.to(device)
                 pred_masks = model(inputs)
                 pred_masks = pred_masks[:, 1, :, :] > pred_masks[:, 0, :, :]
@@ -103,14 +107,21 @@ def test(epoch_num, test_output_path, test_loader):
     model.eval()
     with torch.no_grad():
         total_samples, total_f1_score = 0, 0
-        for batch_idx, (inputs, masks) in enumerate(test_loader):
+        for batch_idx, (inputs, masks, image_names) in enumerate(test_loader):
             inputs, masks = inputs.to(device), masks.to(device)
             pred_masks = model(inputs)
             pred_masks = pred_masks[:, 1, :, :] > pred_masks[:, 0, :, :]
             pred_masks_images = pred_masks.detach().cpu()
+            masks_images = masks.detach().cpu()
+            inputs_images = inputs.detach().cpu()
             for i, img in enumerate(pred_masks_images):
                 img = img.float()
-                torchvision.utils.save_image(img, f'{test_output_path}/{batch_idx}_{i}.png')
+                torchvision.utils.save_image(img, f'{test_output_path}/{image_names[i]}_pred.png')
+            for i, img in enumerate(masks_images):
+                img = img.float()
+                torchvision.utils.save_image(img, f'{test_output_path}/{image_names[i]}_mask.png')
+            for i, img in enumerate(inputs_images):
+                torchvision.utils.save_image(img, f'{test_output_path}/{image_names[i]}_input.png')
             tp = (masks * pred_masks).sum()
             fp = ((1 - masks) * pred_masks).sum()
             fn = (masks * ~pred_masks).sum()
@@ -138,7 +149,7 @@ if __name__ == "__main__":
     test_set = Stenosis_Dataset(mode="test")
     test_loader = DataLoader(test_set, batch_size=4, shuffle=False, num_workers=4, drop_last=False)
     
-    epoch_num = 11
+    epoch_num = 20
 
     train(epoch_num, output_path, train_loader_1, train_loader_2, val_loader)
     test(epoch_num, test_output_path, test_loader)

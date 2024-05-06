@@ -46,7 +46,7 @@ class CombinedLoss(nn.Module):
         # 加权组合
         combined_loss = ce_loss + self.dice_weight * dice_loss + self.iou_weight * iou_loss
         
-        return combined_loss
+        return combined_loss, ce_loss, dice_loss, iou_loss
 
 # 示例代码
 if __name__ == "__main__":
@@ -58,8 +58,9 @@ if __name__ == "__main__":
     pred = pred.to(device)
     target = target.to(device)
     # 创建联合损失函数实例
-    combined_loss_fn = CombinedLoss(ce_weight=torch.tensor([1.0, 100.0], device='cuda'), dice_weight=1.0, iou_weight=1.0)
+    combined_loss_fn = CombinedLoss(ce_weight=torch.tensor([1.0, 10.0], device=device), dice_weight=2.0, iou_weight=2.0)
     combined_loss_fn = combined_loss_fn.to(device)  # 确保损失函数在同一设备上
     # 计算联合损失
-    loss = combined_loss_fn(pred, target)
-    print(f"联合损失：{loss.item()}")
+    combined_loss, ce_loss, dice_loss, iou_loss = combined_loss_fn(pred, target)
+    combined_loss.backward()
+    print(f"联合损失：{combined_loss.item()}, 交叉熵损失：{ce_loss.item()}, dice损失：{dice_loss.item()}, iou损失：{iou_loss.item()}")

@@ -82,3 +82,7 @@ class UNet(nn.Module):
 
         d1 = self.Conv_1x1(d2)
         return d1
+
+if __name__ == "__main__":
+    model = UNet(img_ch=1, output_ch=2)
+    print(model)
