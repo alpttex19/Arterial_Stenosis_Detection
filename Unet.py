@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-
+import torch.nn.init as init
 
 class conv_block(nn.Module):
     def __init__(self, ch_in, ch_out):
@@ -13,10 +13,21 @@ class conv_block(nn.Module):
             nn.BatchNorm2d(ch_out),
             nn.ReLU(inplace=True)
         )
+        self._initialize_weights()
 
     def forward(self, x):
         x = self.conv(x)
         return x
+
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
 
 
 class up_conv(nn.Module):
@@ -28,13 +39,24 @@ class up_conv(nn.Module):
             nn.BatchNorm2d(ch_out),
             nn.ReLU(inplace=True)
         )
+        self._initialize_weights()
 
     def forward(self, x):
         x = self.up(x)
         return x
 
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
 
-class UNet(nn.Module):
+
+class Unet(nn.Module):
     def __init__(self, img_ch=1, output_ch=2):
         super().__init__()
         self.Maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -55,6 +77,7 @@ class UNet(nn.Module):
         self.Up_conv2 = conv_block(ch_in=128, ch_out=64)
 
         self.Conv_1x1 = nn.Conv2d(64, output_ch, kernel_size=1, stride=1, padding=0)
+        self._initialize_weights()
 
     def forward(self, x):
         x1 = self.Conv1(x)
@@ -83,6 +106,16 @@ class UNet(nn.Module):
         d1 = self.Conv_1x1(d2)
         return d1
 
+    def _initialize_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias, 0)
+
 if __name__ == "__main__":
-    model = UNet(img_ch=1, output_ch=2)
+    model = Unet(img_ch=1, output_ch=2)
     print(model)

@@ -98,5 +98,5 @@ class ResUnet(nn.Module):
         return d1
 
 if __name__ == "__main__":
-    model = ResUNet(img_ch=1, output_ch=2)
+    model = ResUnet(img_ch=1, output_ch=2)
     print(model)

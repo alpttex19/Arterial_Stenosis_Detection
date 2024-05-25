@@ -1,6 +1,4 @@
 import os
-
-from PIL import Image
 import cv2
 import torch
 from torch.utils.data import Dataset
@@ -11,7 +9,7 @@ class Stenosis_Dataset(Dataset):
         self.data_root = f"stenosis_data/{mode}"
         self.file_names = os.listdir(f"stenosis_data/{mode}/images")
         if transform != None:
-            self.transform = transform(img_size=512)
+            self.transform = transform
 
 
 
