@@ -40,7 +40,7 @@ class UpConv(nn.Module):
         return x
 
 
-class ResUNet(nn.Module):
+class ResUnet(nn.Module):
     def __init__(self, img_ch=1, output_ch=2):
         super().__init__()
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)

@@ -3,6 +3,8 @@
 *.txt
 *.pth
 *.png
+pth
+ScoreImage
 test_results
 train_log
 intermediate_results

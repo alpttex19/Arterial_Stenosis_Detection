@@ -255,8 +255,14 @@ class SSDAugmentation(object):
 
 ## SSD-style valTransform
 class SSDBaseTransform(object):
-    def __call__(self, image, mask=None):
-        
+    def __init__(self, img_size=512):
+        self.img_size = img_size
+        self.resize = Compose([
+            Resize(self.img_size)                      # resize操作
+        ])
+    def __call__(self, image, mask=None): 
+        # augment
+        image, mask = self.resize(image, mask) 
         # to tensor
         img_tensor = (torch.from_numpy(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).permute(2,0,1))[0, :, :].unsqueeze(0) / 255
         mask_tensor = torch.from_numpy(mask).squeeze(0)/255
