@@ -3,6 +3,7 @@
 *.txt
 *.pth
 *.png
+__pycache__
 pth
 ScoreImage
 test_results
