@@ -9,9 +9,10 @@ import torchvision
 class CustomDataset(Dataset):
     def __init__(self, root, transforms=None):
         self.root = root
+        root_list = root.split("/")
         self.transforms = transforms
         self.images = list(sorted(os.listdir(os.path.join(root, "images"))))
-        ann_path = (os.path.join(root, "annotations", "train.json"))
+        ann_path = (os.path.join(root, "annotations", f"{root_list[-1]}.json"))
         with open(ann_path) as f:
             self.ann = json.load(f)
 
@@ -29,7 +30,7 @@ class CustomDataset(Dataset):
         xmax = xmin + obj['bbox'][2]
         ymax = ymin + obj['bbox'][3]
         boxes.append([xmin, ymin, xmax, ymax])
-        labels.append(0)
+        labels.append(1)
 
         boxes = torch.as_tensor(boxes, dtype=torch.float32)
         labels = torch.as_tensor(labels, dtype=torch.int64)
@@ -42,7 +43,7 @@ class CustomDataset(Dataset):
         if self.transforms is not None:
             img = self.transforms(img)
         
-        return img, target
+        return img, target, img_name
 
     def __len__(self):
         return len(self.images)

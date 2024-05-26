@@ -9,8 +9,10 @@ from AttentionUnet import Attention_UNet
 import os 
 from tqdm import tqdm
 import torchvision
+import numpy as np
 import argparse
 from data_augmentation import SSDAugmentation, SSDBaseTransform
+from fast_cnn import get_model_instance_segmentation
 
 
 
@@ -102,35 +104,94 @@ def test(test_output_path, pretrained_model, batch_size):
     test_set = Stenosis_Dataset(mode="test", transform=SSDBaseTransform())
     test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=2, drop_last=False)
     model.load_state_dict(torch.load(pretrained_model))
+    detect_model.load_state_dict(torch.load("./pth/fasterrcnn_resnet50_fpn.pth"))
     model.eval()
+    detect_model.eval()
     with torch.no_grad():
         total_samples, total_f1_score = 0, 0
-        for batch_idx, (inputs, masks, image_names) in enumerate(tqdm(test_loader)):
-            inputs, masks = inputs.to(device), masks.to(device)
-            prob_masks = model(inputs)
-            pred_masks = prob_masks[:, 1, :, :] > prob_masks[:, 0, :, :]
-            
-            pred_masks_images = pred_masks.detach().cpu()
-            masks_images = masks.detach().cpu()
-            inputs_images = inputs.detach().cpu()
-            for i, img in enumerate(pred_masks_images):
-                img = img.float()
-                torchvision.utils.save_image(img, f'{test_output_path}/{image_names[i][:-4]}_pred.png')
-            for i, img in enumerate(masks_images):
-                img = img.float()
-                torchvision.utils.save_image(img, f'{test_output_path}/{image_names[i][:-4]}_mask.png')
-            for i, img in enumerate(inputs_images):
-                torchvision.utils.save_image(img, f'{test_output_path}/{image_names[i][:-4]}_input.png')
-            
-            tp = (masks * pred_masks).sum()
-            fp = ((1 - masks) * pred_masks).sum()
-            fn = (masks * ~pred_masks).sum()
-            f1 = tp / (tp + 0.5 * (fp + fn))
-            total_samples += inputs.size(0)
-            total_f1_score += f1 * inputs.size(0)
+        for batch_idx, (images, masks, image_names) in enumerate(tqdm(test_loader)):
+            images, masks = images.to(device), masks.to(device)
+            prob_masks = model(images)
+            images_detect = list(img.to(device) for img in images)
+            bounding_boxes = detect_model(images_detect)
+            for i, (image, mask, bbox, prob_mask, image_name) in enumerate(zip(images_detect,masks, bounding_boxes, prob_masks, image_names)):
+                pred_mask = prob_mask[1, :, :] > prob_mask[0, :, :]
+                # 留下预测框的区域
+                masked_pred_mask = mask_the_mask(bbox, pred_mask)
+
+                torchvision.utils.save_image(masked_pred_mask.detach().cpu().float(), f'{test_output_path}/{image_name[:-4]}_pred.png')
+                torchvision.utils.save_image(mask.detach().cpu().float(), f'{test_output_path}/{image_name[:-4]}_mask.png')
+                torchvision.utils.save_image(image.detach().cpu().float(), f'{test_output_path}/{image_name[:-4]}_input.png')
+                # save_pred_mask(masked_pred_mask, mask, image, image_name, test_output_path)
+
+                tp = (mask * masked_pred_mask).sum()
+                fp = ((1 - mask) * masked_pred_mask).sum()
+                fn = (mask * (1-masked_pred_mask)).sum()
+                f1 = tp / (tp + 0.5 * (fp + fn))
+                total_samples += image.size(0)
+                total_f1_score += f1 * image.size(0)
         print(f"test_f1_score: {total_f1_score / total_samples}")
 
 
+def mask_the_mask(bbox, pred_mask):
+    # 绘制预测框
+    boxes = bbox['boxes']
+    labels = bbox['labels']
+    scores = bbox['scores']
+    # 如果有多个置信度大于 0.7 的框，则全部绘制
+    flag = False
+    ou = torch.zeros_like(pred_mask).long()
+    for box, score in zip(boxes, scores):
+        if score >= 0.5:
+            flag = True
+            x_min, y_min, x_max, y_max =map(int, box)
+            ou[y_min:y_max, x_min:x_max] = 1
+    if flag == True:
+        masked_pred_mask = pred_mask * ou
+    # 否则绘制最高分数的框
+    elif len(boxes) > 0 and flag == False:
+        highest_score_index = torch.argmax(scores).item()   # 找到最高分数的索引
+        highest_score_box = boxes[highest_score_index]
+
+        # 绘制最高分数的框
+        x_min, y_min, x_max, y_max = map(int, highest_score_box)  # 将框的坐标转换为整数
+        # 初始化一个与 pred_masks 相同形状的全零数组
+        masked_pred_mask = torch.zeros_like(pred_mask).long()
+        # 只保留框内的区域
+        masked_pred_mask[y_min:y_max, x_min:x_max] = pred_mask[y_min:y_max, x_min:x_max]
+    else:
+        masked_pred_mask = torch.zeros_like(pred_mask).long()
+
+    return masked_pred_mask
+
+
+
+
+def save_pred_mask(masked_pred_mask, mask, image, image_name, test_output_path):
+    pred_mask_cpu = masked_pred_mask.detach().cpu().numpy()
+    mask_cpu = mask.detach().cpu().numpy()
+    input_image_cpu = image.detach().cpu().numpy().squeeze()
+    # print(input_image_cpu)
+    # print(pred_mask_cpu)
+    # print(mask_cpu)
+    # 创建一个新的图形
+    fig, ax = plt.subplots()
+    # 显示原始图像
+    ax.imshow(input_image_cpu, cmap='gray')
+    # 创建一个与 input_image_cpu 形状相同的覆盖层
+    mask_overlay = np.zeros_like(input_image_cpu)
+    pred_mask_overlay = np.zeros_like(input_image_cpu)
+    # # 将 mask 和 pred_mask 的位置设置为对应的颜色
+    mask_overlay[mask_cpu > 0.5] = [100]  # 红色
+    pred_mask_overlay[pred_mask_cpu > 0.5] = [200]  # 黄色
+    # # 显示覆盖层，设置透明度为 50%
+    ax.imshow(mask_overlay, alpha=0.1)
+    ax.imshow(pred_mask_overlay, alpha=0.1)
+    # 去除坐标轴
+    ax.axis('off')
+    # 保存结果图像
+    plt.savefig(f'{test_output_path}/{image_name[:-4]}_combined.png', bbox_inches='tight', pad_inches=0)
+    plt.close(fig)
 
 if __name__ == "__main__":
 
@@ -140,7 +201,7 @@ if __name__ == "__main__":
     parser.add_argument("--mode", type=str, default="train")
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--pretrained_model", type=str, default='./pth/model_10.pth')
+    parser.add_argument("--pretrained_model", type=str, default='./pth/atten_model_10.pth')
     args = parser.parse_args()
     # 使用 os.makedirs 创建文件夹
     os.makedirs(args.output_path, exist_ok=True)
@@ -151,7 +212,11 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
     criterion = torch.nn.CrossEntropyLoss(weight=torch.tensor([1.0, 50.0], device=device))
     combined_loss_fn = CombinedLoss(ce_weight=torch.tensor([1.0, 50.0], device=device), dice_weight=2.0, iou_weight=2.0, device=device)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=4,gamma=0.1, last_epoch=-1)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=4,gamma=0.1)
+
+    num_classes = 2  # 根据你数据集的类别数调整
+    detect_model = get_model_instance_segmentation(num_classes)
+    detect_model.to(device)
 
     if args.mode == "train":
         train(args.epochs, args.output_path, args.batch_size)
