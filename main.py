@@ -25,6 +25,8 @@ def train(epoch_num, output_path, batch_size):
     val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=2, drop_last=False)
     train_log = []
     f1_score_log = []
+    detect_model.load_state_dict(torch.load("./pth/fasterrcnn_resnet50_fpn.pth"))
+    detect_model.eval()
     for epoch in range(epoch_num):
         loss_epoch_log = []
         print(f"EPOCH: {epoch}/{epoch_num}")
@@ -38,6 +40,14 @@ def train(epoch_num, output_path, batch_size):
             inputs, masks = inputs.to(device), masks.to(device)
             optimizer.zero_grad()
             prob_masks = model(inputs)
+            ########################################################
+            # images_detect = list(img.to(device) for img in inputs)
+            # bounding_boxes = detect_model(images_detect)
+            # masked_preds = torch.zeros_like(prob_masks)
+            # for i, (image, mask, bbox, prob_mask, image_name) in enumerate(zip(images_detect,masks, bounding_boxes, prob_masks, image_names)):
+            #     # 留下预测框的区域
+            #     masked_preds[i] = mask_the_pred(bbox, prob_mask)
+            #########################################################
             loss = criterion(prob_masks, masks)
             loss.backward()
             # combined_loss, tversky_loss, ce_loss = combined_loss_fn(pred_masks, masks)
@@ -92,7 +102,7 @@ def train(epoch_num, output_path, batch_size):
     plt.plot(range(len(f1_score_log)), f1_score_log)
     plt.xlabel("epoch")
     plt.ylabel("f1_score, train_loss")
-    plt.savefig(f"f1_score_{epoch_num}.png")
+    plt.savefig(f"atten_f1_score_{epoch_num}.png")
     plt.clf()  # 清除当前图像
     # 保存模型
     torch.save(model.state_dict(), f"./pth/atten_model_{epoch_num}.pth")
@@ -117,6 +127,7 @@ def test(test_output_path, pretrained_model, batch_size):
             for i, (image, mask, bbox, prob_mask, image_name) in enumerate(zip(images_detect,masks, bounding_boxes, prob_masks, image_names)):
                 pred_mask = prob_mask[1, :, :] > prob_mask[0, :, :]
                 # 留下预测框的区域
+                # masked_pred_mask = pred_mask.long()
                 masked_pred_mask = mask_the_mask(bbox, pred_mask)
 
                 torchvision.utils.save_image(masked_pred_mask.detach().cpu().float(), f'{test_output_path}/{image_name[:-4]}_pred.png')
@@ -131,6 +142,42 @@ def test(test_output_path, pretrained_model, batch_size):
                 total_samples += image.size(0)
                 total_f1_score += f1 * image.size(0)
         print(f"test_f1_score: {total_f1_score / total_samples}")
+
+
+def mask_the_pred(bbox, prob_masks):
+    # 绘制预测框
+    boxes = bbox['boxes']
+    labels = bbox['labels']
+    scores = bbox['scores']
+    # 如果有多个置信度大于 0.7 的框，则全部绘制
+    flag = False
+    ou = torch.zeros_like(prob_masks[0])
+    masked_prob_mask = torch.zeros_like(prob_masks)
+    for box, score in zip(boxes, scores):
+        if score >= 0.5:
+            flag = True
+            x_min, y_min, x_max, y_max =map(int, box)
+            ou[y_min:y_max, x_min:x_max] = 1
+    if flag == True:
+        masked_prob_mask[0] = prob_masks[0] + (1-ou)
+        masked_prob_mask[1] = prob_masks[1] * ou
+    # 否则绘制最高分数的框
+    elif len(boxes) > 0 and flag == False:
+        highest_score_index = torch.argmax(scores).item()   # 找到最高分数的索引
+        highest_score_box = boxes[highest_score_index]
+
+        # 绘制最高分数的框
+        x_min, y_min, x_max, y_max = map(int, highest_score_box)  # 将框的坐标转换为整数
+        # 初始化一个与 pred_masks 相同形状的全零数组
+        zero_mask = torch.zeros_like(prob_masks[0])
+        zero_mask[y_min:y_max, x_min:x_max] = 1
+        masked_prob_mask[0] = prob_masks[0] + (1-zero_mask)
+        masked_prob_mask[1] = prob_masks[1] * zero_mask
+        # 只保留框内的区域
+    else:
+        masked_prob_mask = prob_masks
+
+    return masked_prob_mask
 
 
 def mask_the_mask(bbox, pred_mask):
